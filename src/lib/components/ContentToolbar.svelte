@@ -7,6 +7,12 @@
 
   let theme: Theme = $state("system");
 
+  function getFolderName(path: string): string {
+    if (!path) return "";
+    const segments = path.replace(/\/$/, "").split("/");
+    return segments[segments.length - 1] || path;
+  }
+
   function applyTheme(t: Theme) {
     document.documentElement.setAttribute("data-theme", t);
   }
@@ -77,39 +83,32 @@
     <span>Woodeye</span>
   </div>
 
-  <div class="repo-section">
-    <div class="input-wrapper">
-      <svg class="folder-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <div class="context-card repo-context" title={repoPath}>
+    <span class="context-label">Repository</span>
+    <div class="context-content">
+      <svg class="context-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
       </svg>
-      <input
-        type="text"
-        bind:value={repoPath}
-        placeholder="Repository path..."
-        disabled={loading}
-        onkeydown={(e) => e.key === "Enter" && onLoadRepo(repoPath)}
-      />
-    </div>
-    <button class="browse-btn" onclick={handleBrowse} disabled={loading} title="Browse">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-      </svg>
-    </button>
-    <button
-      class="load-btn"
-      onclick={() => onLoadRepo(repoPath)}
-      disabled={loading || !repoPath.trim()}
-    >
-      {#if loading}
-        <span class="btn-spinner"></span>
+      {#if repoPath}
+        <span class="context-value">{getFolderName(repoPath)}</span>
       {:else}
-        Load
+        <span class="context-placeholder">No repository</span>
       {/if}
-    </button>
+      <button class="context-action" onclick={handleBrowse} disabled={loading} title="Browse for repository">
+        {#if loading}
+          <span class="btn-spinner"></span>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        {/if}
+      </button>
+    </div>
   </div>
 
   {#if worktrees.length > 0}
-    <div class="worktree-section">
+    <div class="context-card worktree-context">
+      <span class="context-label">Worktree</span>
       <WorktreeDropdown
         {worktrees}
         {selectedWorktree}
@@ -184,117 +183,94 @@
     color: var(--color-primary);
   }
 
-  .repo-section {
+  .context-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-xs) var(--space-md);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    min-width: 0;
+  }
+
+  .context-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+  }
+
+  .context-content {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    flex: 1;
-    max-width: 400px;
   }
 
-  .input-wrapper {
-    flex: 1;
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .folder-icon {
-    position: absolute;
-    left: var(--space-sm);
+  .context-icon {
     color: var(--color-text-muted);
-    pointer-events: none;
-  }
-
-  .input-wrapper input {
-    width: 100%;
-    padding: var(--space-sm) var(--space-sm) var(--space-sm) 32px;
-    font-size: 0.85rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: ui-monospace, monospace;
-    transition: border-color 0.15s, background-color 0.15s;
-  }
-
-  .input-wrapper input:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
-
-  .input-wrapper input::placeholder {
-    color: var(--color-text-muted);
-  }
-
-  .input-wrapper input:disabled {
-    opacity: 0.6;
-  }
-
-  .browse-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
     flex-shrink: 0;
   }
 
-  .browse-btn:hover:not(:disabled) {
-    border-color: var(--color-primary);
+  .context-value {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .context-placeholder {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+
+  .context-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: auto;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .context-action:hover:not(:disabled) {
+    background: var(--color-bg-card);
     color: var(--color-primary);
   }
 
-  .browse-btn:disabled {
+  .context-action:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .load-btn {
-    padding: var(--space-sm) var(--space-md);
-    font-size: 0.85rem;
-    font-weight: 500;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--color-primary);
-    color: white;
-    cursor: pointer;
-    transition: opacity 0.15s;
-    min-width: 60px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .repo-context {
     flex-shrink: 0;
+    max-width: 200px;
   }
 
-  .load-btn:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .load-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .worktree-context {
+    flex: 1;
+    min-width: 0;
   }
 
   .btn-spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(100, 100, 100, 0.3);
+    border-top-color: var(--color-text-muted);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
-  }
-
-  .worktree-section {
-    flex: 1;
-    min-width: 0;
   }
 
   .toolbar-actions {

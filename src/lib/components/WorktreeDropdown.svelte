@@ -375,6 +375,7 @@
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
+    padding-right: 36px;
     border: none;
     background: transparent;
     color: var(--color-text);
@@ -455,7 +456,7 @@
     right: var(--space-sm);
     top: 50%;
     transform: translateY(-50%);
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     width: 20px;
@@ -466,10 +467,6 @@
     color: var(--color-text-muted);
     cursor: pointer;
     transition: background-color 0.15s, color 0.15s;
-  }
-
-  .worktree-option-wrapper:hover .delete-btn {
-    display: flex;
   }
 
   .delete-btn:hover {

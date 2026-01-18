@@ -39,6 +39,10 @@
   let hasExternalChanges = $state(false);
   let unlisten: UnlistenFn | null = null;
 
+  // Working diff cache (keyed by worktree path)
+  let workingDiffCache: Map<string, WorkingDiff> = $state(new Map());
+  let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
   // Dialog state
   let showCreateDialog = $state(false);
   let branches: BranchInfo[] = $state([]);
@@ -58,6 +62,7 @@
     selectedWorktree = null;
     selectedCommit = null;
     commitDiff = null;
+    workingDiffCache = new Map(); // Clear cache when loading new repo
 
     try {
       const result = await invoke<Worktree[]>("list_worktrees", {
@@ -119,7 +124,26 @@
     workingSelected = false;
     hasMoreCommits = true;
 
-    await loadCommits(false);
+    // Load commits and status in parallel
+    const [, status] = await Promise.all([
+      loadCommits(false),
+      invoke<WorktreeStatus>("get_worktree_status", { worktreePath: worktree.path }),
+    ]);
+
+    // Update worktree with status
+    if (selectedWorktree?.path === worktree.path) {
+      selectedWorktree = { ...selectedWorktree, status };
+      worktrees = worktrees.map((wt) =>
+        wt.path === worktree.path ? { ...wt, status } : wt
+      );
+
+      // Auto-select working changes if dirty, otherwise first commit
+      if (!status.is_clean) {
+        await selectWorkingChanges();
+      } else if (commits.length > 0) {
+        await selectCommit(commits[0]);
+      }
+    }
   }
 
   async function loadCommits(append: boolean) {
@@ -180,16 +204,45 @@
 
     if (!selectedWorktree) return;
 
+    await fetchWorkingDiff(selectedWorktree.path, false);
+  }
+
+  /** Fetch working diff with optional caching */
+  async function fetchWorkingDiff(worktreePath: string, skipCache = false) {
+    // Check cache unless skipping
+    if (!skipCache) {
+      const cached = workingDiffCache.get(worktreePath);
+      if (cached) {
+        workingDiff = cached;
+        return;
+      }
+    }
+
     loadingDiff = true;
     try {
-      workingDiff = await invoke<WorkingDiff>("get_working_diff", {
-        worktreePath: selectedWorktree.path,
-      });
+      const result = await invoke<WorkingDiff>("get_working_diff", { worktreePath });
+      // Guard against worktree change during async operation
+      if (selectedWorktree?.path === worktreePath) {
+        workingDiff = result;
+        workingDiffCache.set(worktreePath, result);
+        // Trigger reactivity by creating new Map reference
+        workingDiffCache = new Map(workingDiffCache);
+      }
     } catch (e) {
       console.error("Failed to load working diff:", e);
     } finally {
       loadingDiff = false;
     }
+  }
+
+  /** Debounced refresh for working diff when file system changes */
+  function refreshWorkingDiffDebounced() {
+    if (refreshTimeout) clearTimeout(refreshTimeout);
+    refreshTimeout = setTimeout(() => {
+      if (workingSelected && selectedWorktree) {
+        fetchWorkingDiff(selectedWorktree.path, true); // force refresh, skip cache
+      }
+    }, 300);
   }
 
   async function refreshWorktrees() {
@@ -346,7 +399,16 @@
 
   onMount(() => {
     listen("worktree-changed", () => {
-      hasExternalChanges = true;
+      // Clear the working diff cache since files have changed
+      workingDiffCache = new Map();
+
+      if (workingSelected && selectedWorktree) {
+        // If viewing working changes, auto-refresh with debounce
+        refreshWorkingDiffDebounced();
+      } else {
+        // Otherwise, show indicator that external changes occurred
+        hasExternalChanges = true;
+      }
     }).then((fn) => {
       unlisten = fn;
     });
@@ -360,6 +422,9 @@
     return () => {
       if (unlisten) {
         unlisten();
+      }
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
       }
     };
   });
