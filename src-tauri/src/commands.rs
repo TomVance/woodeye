@@ -1,5 +1,8 @@
 use crate::git;
-use crate::types::{CommitDiff, CommitInfo, WorkingDiff, Worktree, WorktreeStatus};
+use crate::types::{
+    BranchInfo, CommitDiff, CommitInfo, CreateWorktreeOptions, PruneResult, WorkingDiff, Worktree,
+    WorktreeStatus,
+};
 use crate::watcher;
 use tauri::async_runtime::spawn_blocking;
 
@@ -46,6 +49,41 @@ pub async fn get_working_diff(worktree_path: String) -> Result<WorkingDiff, Stri
 #[tauri::command]
 pub async fn get_worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
     spawn_blocking(move || git::get_worktree_status_by_path(&worktree_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn create_worktree(
+    repo_path: String,
+    options: CreateWorktreeOptions,
+) -> Result<Worktree, String> {
+    spawn_blocking(move || git::create_worktree(&repo_path, options))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_worktree(
+    repo_path: String,
+    worktree_path: String,
+    force: bool,
+) -> Result<(), String> {
+    spawn_blocking(move || git::delete_worktree(&repo_path, &worktree_path, force))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn prune_worktrees(repo_path: String) -> Result<PruneResult, String> {
+    spawn_blocking(move || git::prune_worktrees(&repo_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_branches(repo_path: String) -> Result<Vec<BranchInfo>, String> {
+    spawn_blocking(move || git::list_branches(&repo_path))
         .await
         .map_err(|e| e.to_string())?
 }

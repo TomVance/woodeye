@@ -2,10 +2,21 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { ask, message } from "@tauri-apps/plugin-dialog";
   import WorktreeSelector from "./lib/components/WorktreeSelector.svelte";
   import CommitList from "./lib/components/CommitList.svelte";
   import CommitDiffView from "./lib/components/CommitDiffView.svelte";
-  import type { Worktree, CommitInfo, CommitDiff, WorkingDiff, WorktreeStatus } from "./lib/types";
+  import CreateWorktreeDialog from "./lib/components/CreateWorktreeDialog.svelte";
+  import type {
+    Worktree,
+    CommitInfo,
+    CommitDiff,
+    WorkingDiff,
+    WorktreeStatus,
+    BranchInfo,
+    CreateWorktreeOptions,
+    PruneResult,
+  } from "./lib/types";
   import { getLastRepoPath, saveLastRepoPath } from "./lib/store";
 
   const COMMITS_PER_PAGE = 10;
@@ -27,6 +38,15 @@
   let refreshing = $state(false);
   let hasExternalChanges = $state(false);
   let unlisten: UnlistenFn | null = null;
+
+  // Dialog state
+  let showCreateDialog = $state(false);
+  let branches: BranchInfo[] = $state([]);
+
+  // Get main worktree path for the dialog
+  let mainWorktreePath = $derived(
+    worktrees.find((w) => w.is_main)?.path ?? ""
+  );
 
   async function loadWorktrees(path: string) {
     if (!path.trim()) return;
@@ -229,6 +249,101 @@
     }
   }
 
+  async function openCreateDialog() {
+    if (!repoPath.trim()) return;
+
+    try {
+      branches = await invoke<BranchInfo[]>("list_branches", {
+        repoPath: repoPath,
+      });
+      showCreateDialog = true;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function handleCreateWorktree(options: CreateWorktreeOptions) {
+    await invoke("create_worktree", {
+      repoPath: repoPath,
+      options,
+    });
+    await refreshWorktrees();
+  }
+
+  async function handleDeleteWorktree(worktree: Worktree) {
+    const hasChanges = worktree.status && !worktree.status.is_clean;
+
+    let confirmed = await ask(
+      hasChanges
+        ? `"${worktree.name}" has uncommitted changes. Are you sure you want to delete it?`
+        : `Are you sure you want to delete the worktree "${worktree.name}"?`,
+      {
+        title: "Delete Worktree",
+        kind: hasChanges ? "warning" : "info",
+        okLabel: hasChanges ? "Force Delete" : "Delete",
+        cancelLabel: "Cancel",
+      }
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await invoke("delete_worktree", {
+        repoPath: repoPath,
+        worktreePath: worktree.path,
+        force: hasChanges,
+      });
+
+      // If the deleted worktree was selected, clear selection
+      if (selectedWorktree?.path === worktree.path) {
+        selectedWorktree = null;
+        commits = [];
+        selectedCommit = null;
+        commitDiff = null;
+        workingDiff = null;
+      }
+
+      await refreshWorktrees();
+    } catch (e) {
+      await message(String(e), { title: "Delete Failed", kind: "error" });
+    }
+  }
+
+  async function handlePruneWorktrees() {
+    const confirmed = await ask(
+      "This will remove stale worktree references. Continue?",
+      {
+        title: "Prune Worktrees",
+        kind: "info",
+        okLabel: "Prune",
+        cancelLabel: "Cancel",
+      }
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const result = await invoke<PruneResult>("prune_worktrees", {
+        repoPath: repoPath,
+      });
+
+      if (result.pruned_count > 0) {
+        await message(
+          `Pruned ${result.pruned_count} stale worktree reference(s).\n\n${result.messages.join("\n")}`,
+          { title: "Prune Complete", kind: "info" }
+        );
+        await refreshWorktrees();
+      } else {
+        await message("No stale worktree references found.", {
+          title: "Prune Complete",
+          kind: "info",
+        });
+      }
+    } catch (e) {
+      await message(String(e), { title: "Prune Failed", kind: "error" });
+    }
+  }
+
   onMount(() => {
     listen("worktree-changed", () => {
       hasExternalChanges = true;
@@ -269,6 +384,9 @@
       bind:repoPath
       onSelectWorktree={selectWorktree}
       onLoadRepo={loadWorktrees}
+      onCreateWorktree={openCreateDialog}
+      onDeleteWorktree={handleDeleteWorktree}
+      onPruneWorktrees={handlePruneWorktrees}
       {loading}
     />
   </aside>
@@ -303,28 +421,6 @@
             </svg>
           </button>
         </h1>
-        {#if selectedWorktree}
-          <div class="stats-row">
-            <div class="stat-card">
-              <span class="stat-value">{commits.length}{hasMoreCommits ? '+' : ''}</span>
-              <span class="stat-label">Commits loaded</span>
-            </div>
-            {#if selectedWorktree.status}
-              <div class="stat-card" class:has-changes={!selectedWorktree.status.is_clean}>
-                <span class="stat-value">{selectedWorktree.status.modified}</span>
-                <span class="stat-label">Modified</span>
-              </div>
-              <div class="stat-card" class:has-additions={selectedWorktree.status.staged > 0}>
-                <span class="stat-value">{selectedWorktree.status.staged}</span>
-                <span class="stat-label">Staged</span>
-              </div>
-              <div class="stat-card">
-                <span class="stat-value">{selectedWorktree.status.untracked}</span>
-                <span class="stat-label">Untracked</span>
-              </div>
-            {/if}
-          </div>
-        {/if}
       </div>
 
       <div class="split-view">
@@ -373,6 +469,15 @@
     {/if}
   </main>
 </div>
+
+{#if showCreateDialog}
+  <CreateWorktreeDialog
+    {branches}
+    mainWorktreePath={mainWorktreePath}
+    onClose={() => (showCreateDialog = false)}
+    onCreate={handleCreateWorktree}
+  />
+{/if}
 
 <style>
   .app-layout {
@@ -425,7 +530,6 @@
   .content-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
-    margin-bottom: var(--space-md);
     display: flex;
     align-items: center;
     gap: var(--space-sm);
@@ -483,49 +587,6 @@
 
   .refresh-btn .spinning {
     animation: spin 0.8s linear infinite;
-  }
-
-  .stats-row {
-    display: flex;
-    gap: var(--space-lg);
-  }
-
-  .stat-card {
-    display: flex;
-    flex-direction: column;
-    padding: var(--space-md) var(--space-lg);
-    background: var(--color-bg);
-    border-radius: var(--radius-md);
-    min-width: 100px;
-  }
-
-  .stat-card.has-changes {
-    background: rgba(245, 158, 11, 0.1);
-  }
-
-  .stat-card.has-changes .stat-value {
-    color: var(--color-warning);
-  }
-
-  .stat-card.has-additions {
-    background: rgba(34, 197, 94, 0.1);
-  }
-
-  .stat-card.has-additions .stat-value {
-    color: var(--color-success);
-  }
-
-  .stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--color-text);
-  }
-
-  .stat-label {
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
 
   .error-banner {

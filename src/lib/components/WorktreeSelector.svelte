@@ -8,6 +8,9 @@
     repoPath: string;
     onSelectWorktree: (worktree: Worktree) => void;
     onLoadRepo: (path: string) => void;
+    onCreateWorktree: () => void;
+    onDeleteWorktree: (worktree: Worktree) => void;
+    onPruneWorktrees: () => void;
     loading?: boolean;
   }
 
@@ -17,6 +20,9 @@
     repoPath = $bindable(),
     onSelectWorktree,
     onLoadRepo,
+    onCreateWorktree,
+    onDeleteWorktree,
+    onPruneWorktrees,
     loading = false,
   }: Props = $props();
 
@@ -79,46 +85,91 @@
   </div>
 
   {#if worktrees.length > 0}
-    <div class="section-label">Worktrees</div>
+    <div class="section-header">
+      <span class="section-label">Worktrees</span>
+      <div class="section-actions">
+        <button
+          class="action-btn"
+          onclick={onCreateWorktree}
+          disabled={loading}
+          title="Create worktree"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <button
+          class="action-btn"
+          onclick={onPruneWorktrees}
+          disabled={loading}
+          title="Prune stale worktrees - removes references to worktrees that no longer exist on disk"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18"/>
+            <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
     <nav class="worktree-list">
       {#each worktrees as worktree (worktree.path)}
         {@const isSelected = selectedWorktree?.path === worktree.path}
         {@const hasChanges = worktree.status ? !worktree.status.is_clean : false}
-        <button
-          class="worktree-item"
-          class:selected={isSelected}
-          class:has-changes={hasChanges}
-          onclick={() => onSelectWorktree(worktree)}
-          disabled={loading}
-        >
-          <div class="worktree-icon">
-            {#if worktree.is_main}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v6l4 2"/>
+        <div class="worktree-item-wrapper">
+          <button
+            class="worktree-item"
+            class:selected={isSelected}
+            class:has-changes={hasChanges}
+            onclick={() => onSelectWorktree(worktree)}
+            disabled={loading}
+          >
+            <div class="worktree-icon">
+              {#if worktree.is_main}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+              {:else}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 3v12"/>
+                  <circle cx="18" cy="6" r="3"/>
+                  <circle cx="6" cy="18" r="3"/>
+                  <path d="M18 9a9 9 0 01-9 9"/>
+                </svg>
+              {/if}
+            </div>
+            <div class="worktree-info">
+              <span class="worktree-name">{worktree.name}</span>
+              <span class="worktree-branch">
+                {worktree.head.branch ?? "detached"}
+              </span>
+            </div>
+            <div class="worktree-meta">
+              {#if hasChanges}
+                <span class="change-indicator" title="Has uncommitted changes"></span>
+              {/if}
+              <span class="worktree-time">{formatRelativeTime(worktree.last_commit_timestamp)}</span>
+            </div>
+          </button>
+          {#if !worktree.is_main}
+            <button
+              class="delete-btn"
+              onclick={(e) => { e.stopPropagation(); onDeleteWorktree(worktree); }}
+              disabled={loading}
+              title="Delete worktree - removes the worktree directory and its git reference"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18"/>
+                <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
               </svg>
-            {:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M6 3v12"/>
-                <circle cx="18" cy="6" r="3"/>
-                <circle cx="6" cy="18" r="3"/>
-                <path d="M18 9a9 9 0 01-9 9"/>
-              </svg>
-            {/if}
-          </div>
-          <div class="worktree-info">
-            <span class="worktree-name">{worktree.name}</span>
-            <span class="worktree-branch">
-              {worktree.head.branch ?? "detached"}
-            </span>
-          </div>
-          <div class="worktree-meta">
-            {#if hasChanges}
-              <span class="change-indicator" title="Has uncommitted changes"></span>
-            {/if}
-            <span class="worktree-time">{formatRelativeTime(worktree.last_commit_timestamp)}</span>
-          </div>
-        </button>
+            </button>
+          {/if}
+        </div>
       {/each}
     </nav>
   {:else if !loading && repoPath}
@@ -240,13 +291,48 @@
     to { transform: rotate(360deg); }
   }
 
-  .section-label {
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: var(--space-sm) var(--space-md);
+  }
+
+  .section-label {
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--color-text-sidebar);
+  }
+
+  .section-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-sidebar);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+
+  .action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-sidebar-active);
+  }
+
+  .action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .worktree-list {
@@ -255,13 +341,52 @@
     padding: 0 var(--space-sm);
   }
 
+  .worktree-item-wrapper {
+    position: relative;
+    margin-bottom: 2px;
+  }
+
+  .worktree-item-wrapper:hover .delete-btn {
+    opacity: 1;
+  }
+
+  .delete-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-sidebar);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+    z-index: 1;
+  }
+
+  .delete-btn:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.2);
+    color: var(--color-error);
+  }
+
+  .delete-btn:disabled {
+    opacity: 0;
+    cursor: not-allowed;
+  }
+
   .worktree-item {
     width: 100%;
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
-    margin-bottom: 2px;
+    padding-right: 40px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;

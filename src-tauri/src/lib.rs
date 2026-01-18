@@ -16,7 +16,11 @@ pub fn run() {
             commands::get_commit_history,
             commands::get_commit_diff,
             commands::get_working_diff,
-            commands::get_worktree_status
+            commands::get_worktree_status,
+            commands::create_worktree,
+            commands::delete_worktree,
+            commands::prune_worktrees,
+            commands::list_branches
         ])
         .setup(|_app| {
             Ok(())

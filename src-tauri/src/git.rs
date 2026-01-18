@@ -1,6 +1,6 @@
 use crate::types::{
-    CommitDiff, CommitInfo, DiffHunk, DiffLine, DiffStats, FileDiff, FileStatus, HeadInfo,
-    Worktree, WorkingDiff, WorktreeStatus,
+    BranchInfo, CommitDiff, CommitInfo, CreateWorktreeOptions, DiffHunk, DiffLine, DiffStats,
+    FileDiff, FileStatus, HeadInfo, PruneResult, Worktree, WorkingDiff, WorktreeStatus,
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -492,4 +492,135 @@ fn parse_range(s: &str) -> Option<(u32, u32)> {
         1
     };
     Some((start, lines))
+}
+
+/// Create a new worktree
+pub fn create_worktree(repo_path: &str, options: CreateWorktreeOptions) -> Result<Worktree, String> {
+    let mut args = vec!["worktree", "add"];
+
+    // Build temporary strings to hold the branch flag
+    let branch_flag;
+    if let Some(ref branch) = options.new_branch {
+        branch_flag = format!("-b");
+        args.push(&branch_flag);
+        args.push(branch);
+    }
+
+    if options.detach {
+        args.push("--detach");
+    }
+
+    args.push(&options.path);
+
+    if let Some(ref commit_ish) = options.commit_ish {
+        args.push(commit_ish);
+    }
+
+    run_git(repo_path, &args)?;
+
+    // Build and return the new worktree info
+    let path = PathBuf::from(&options.path);
+    build_worktree_info(&path, false)
+}
+
+/// Delete a worktree
+pub fn delete_worktree(repo_path: &str, worktree_path: &str, force: bool) -> Result<(), String> {
+    let mut args = vec!["worktree", "remove"];
+
+    if force {
+        args.push("--force");
+    }
+
+    args.push(worktree_path);
+
+    run_git(repo_path, &args)?;
+    Ok(())
+}
+
+/// Prune stale worktree references
+pub fn prune_worktrees(repo_path: &str) -> Result<PruneResult, String> {
+    // First, do a dry run to see what would be pruned
+    let dry_run_output = run_git(repo_path, &["worktree", "prune", "--dry-run"])?;
+
+    let messages: Vec<String> = dry_run_output
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect();
+
+    let pruned_count = messages.len() as u32;
+
+    // Actually prune
+    run_git(repo_path, &["worktree", "prune"])?;
+
+    Ok(PruneResult {
+        pruned_count,
+        messages,
+    })
+}
+
+/// List all branches (local and remote)
+pub fn list_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
+    // Get list of checked out branches from worktrees
+    let worktree_output = run_git(repo_path, &["worktree", "list", "--porcelain"])?;
+    let mut checked_out_branches: Vec<String> = Vec::new();
+
+    for line in worktree_output.lines() {
+        if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            checked_out_branches.push(branch.to_string());
+        }
+    }
+
+    // Get all branches with format: refname, is_remote indicator
+    // Using for-each-ref for better control over output
+    let output = run_git(
+        repo_path,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%09%(if)%(upstream)%(then)local%(else)%(if:equals=refs/remotes)%(refname:rstrip=-2)%(then)remote%(else)local%(end)%(end)",
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )?;
+
+    let mut branches: Vec<BranchInfo> = Vec::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('\t').collect();
+        let name = parts[0].to_string();
+
+        // Skip HEAD references from remotes
+        if name.ends_with("/HEAD") {
+            continue;
+        }
+
+        let is_remote = name.contains('/');
+        let is_checked_out = if is_remote {
+            false
+        } else {
+            checked_out_branches.contains(&name)
+        };
+
+        branches.push(BranchInfo {
+            name,
+            is_remote,
+            is_checked_out,
+        });
+    }
+
+    // Sort: local branches first, then remote, alphabetically within each group
+    branches.sort_by(|a, b| {
+        match (a.is_remote, b.is_remote) {
+            (false, true) => std::cmp::Ordering::Less,
+            (true, false) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        }
+    });
+
+    Ok(branches)
 }

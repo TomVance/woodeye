@@ -75,3 +75,22 @@ export interface WorkingDiff {
   unstaged_files: FileDiff[];
   stats: DiffStats;
 }
+
+// Worktree management types
+export interface CreateWorktreeOptions {
+  path: string;
+  new_branch: string | null;
+  commit_ish: string | null;
+  detach: boolean;
+}
+
+export interface PruneResult {
+  pruned_count: number;
+  messages: string[];
+}
+
+export interface BranchInfo {
+  name: string;
+  is_remote: boolean;
+  is_checked_out: boolean;
+}

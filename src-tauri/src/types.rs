@@ -94,3 +94,25 @@ pub struct WorkingDiff {
     pub unstaged_files: Vec<FileDiff>,
     pub stats: DiffStats,
 }
+
+// Worktree management types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWorktreeOptions {
+    pub path: String,
+    pub new_branch: Option<String>,
+    pub commit_ish: Option<String>,
+    pub detach: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PruneResult {
+    pub pruned_count: u32,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchInfo {
+    pub name: String,
+    pub is_remote: bool,
+    pub is_checked_out: bool,
+}
