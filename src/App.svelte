@@ -3,7 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { ask, message } from "@tauri-apps/plugin-dialog";
-  import WorktreeSelector from "./lib/components/WorktreeSelector.svelte";
+  import ContentToolbar from "./lib/components/ContentToolbar.svelte";
   import CommitList from "./lib/components/CommitList.svelte";
   import CommitDiffView from "./lib/components/CommitDiffView.svelte";
   import CreateWorktreeDialog from "./lib/components/CreateWorktreeDialog.svelte";
@@ -366,30 +366,20 @@
 </script>
 
 <div class="app-layout">
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
-          <path d="M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
-        </svg>
-        <span>Woodeye</span>
-      </div>
-    </div>
-
-    <WorktreeSelector
-      {worktrees}
-      {selectedWorktree}
-      bind:repoPath
-      onSelectWorktree={selectWorktree}
-      onLoadRepo={loadWorktrees}
-      onCreateWorktree={openCreateDialog}
-      onDeleteWorktree={handleDeleteWorktree}
-      onPruneWorktrees={handlePruneWorktrees}
-      {loading}
-    />
-  </aside>
+  <ContentToolbar
+    bind:repoPath
+    {worktrees}
+    {selectedWorktree}
+    {loading}
+    {refreshing}
+    {hasExternalChanges}
+    onLoadRepo={loadWorktrees}
+    onSelectWorktree={selectWorktree}
+    onCreateWorktree={openCreateDialog}
+    onDeleteWorktree={handleDeleteWorktree}
+    onPruneWorktrees={handlePruneWorktrees}
+    onRefresh={refreshAll}
+  />
 
   <main class="main-content">
     {#if error}
@@ -402,27 +392,6 @@
         <span>{error}</span>
       </div>
     {:else if worktrees.length > 0}
-      <div class="content-header">
-        <h1>
-          {selectedWorktree?.name ?? "Repository"}
-          {#if selectedWorktree?.head.branch}
-            <span class="branch-badge">{selectedWorktree.head.branch}</span>
-          {/if}
-          <button
-            class="refresh-btn"
-            class:has-changes={hasExternalChanges}
-            onclick={refreshAll}
-            disabled={refreshing || loading}
-            title={hasExternalChanges ? "Changes detected - click to refresh" : "Refresh"}
-          >
-            <svg class:spinning={refreshing} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12a9 9 0 1 1-9-9"/>
-              <path d="M21 3v9h-9"/>
-            </svg>
-          </button>
-        </h1>
-      </div>
-
       <div class="split-view">
         <section class="commits-panel">
           <div class="panel-header">
@@ -483,34 +452,8 @@
   .app-layout {
     height: 100%;
     display: flex;
-    overflow: hidden;
-  }
-
-  .sidebar {
-    width: 280px;
-    min-width: 240px;
-    background: var(--color-bg-sidebar);
-    display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-
-  .sidebar-header {
-    padding: var(--space-lg);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    color: var(--color-text-sidebar-active);
-    font-weight: 600;
-    font-size: 1.1rem;
-  }
-
-  .logo svg {
-    color: var(--color-primary);
   }
 
   .main-content {
@@ -519,74 +462,6 @@
     flex-direction: column;
     overflow: hidden;
     background: var(--color-bg);
-  }
-
-  .content-header {
-    padding: var(--space-xl);
-    background: var(--color-bg-card);
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .content-header h1 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-  }
-
-  .branch-badge {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: var(--space-xs) var(--space-sm);
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-    border-radius: var(--radius-sm);
-  }
-
-  .refresh-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
-    margin-left: auto;
-  }
-
-  .refresh-btn:hover:not(:disabled) {
-    background: var(--color-bg);
-    color: var(--color-primary);
-  }
-
-  .refresh-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .refresh-btn.has-changes {
-    color: var(--color-warning);
-    position: relative;
-  }
-
-  .refresh-btn.has-changes::after {
-    content: "";
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 8px;
-    height: 8px;
-    background: var(--color-warning);
-    border-radius: 50%;
-  }
-
-  .refresh-btn .spinning {
-    animation: spin 0.8s linear infinite;
   }
 
   .error-banner {
