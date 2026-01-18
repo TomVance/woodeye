@@ -23,3 +23,28 @@ export function clearLastRepoPath(): void {
     // Ignore storage errors
   }
 }
+
+// Theme persistence
+const THEME_KEY = "woodeye_theme";
+
+export type Theme = "system" | "light" | "dark";
+
+export function getTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark" || stored === "system") {
+      return stored;
+    }
+    return "system";
+  } catch {
+    return "system";
+  }
+}
+
+export function setTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    // Ignore storage errors
+  }
+}
