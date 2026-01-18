@@ -24,6 +24,8 @@
   let loadingDiff = $state(false);
   let hasMoreCommits = $state(true);
   let error = $state("");
+  let refreshing = $state(false);
+  let hasExternalChanges = $state(false);
   let unlisten: UnlistenFn | null = null;
 
   async function loadWorktrees(path: string) {
@@ -185,9 +187,51 @@
     }
   }
 
+  async function refreshAll() {
+    if (!repoPath.trim() || refreshing) return;
+
+    refreshing = true;
+    error = "";
+
+    try {
+      // Refresh worktrees
+      const result = await invoke<Worktree[]>("list_worktrees", {
+        repoPath: repoPath,
+      });
+      worktrees = result;
+
+      // Load statuses in background
+      loadAllWorktreeStatuses(result);
+
+      // If a worktree was selected, refresh its commits
+      if (selectedWorktree) {
+        const updatedWorktree = result.find((w) => w.path === selectedWorktree!.path);
+        if (updatedWorktree) {
+          selectedWorktree = updatedWorktree;
+          commits = [];
+          hasMoreCommits = true;
+          await loadCommits(false);
+
+          // Refresh the currently viewed diff if any
+          if (workingSelected) {
+            await selectWorkingChanges();
+          } else if (selectedCommit) {
+            await selectCommit(selectedCommit);
+          }
+        }
+      }
+
+      hasExternalChanges = false;
+    } catch (e) {
+      error = String(e);
+    } finally {
+      refreshing = false;
+    }
+  }
+
   onMount(() => {
     listen("worktree-changed", () => {
-      refreshWorktrees();
+      hasExternalChanges = true;
     }).then((fn) => {
       unlisten = fn;
     });
@@ -246,6 +290,18 @@
           {#if selectedWorktree?.head.branch}
             <span class="branch-badge">{selectedWorktree.head.branch}</span>
           {/if}
+          <button
+            class="refresh-btn"
+            class:has-changes={hasExternalChanges}
+            onclick={refreshAll}
+            disabled={refreshing || loading}
+            title={hasExternalChanges ? "Changes detected - click to refresh" : "Refresh"}
+          >
+            <svg class:spinning={refreshing} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12a9 9 0 1 1-9-9"/>
+              <path d="M21 3v9h-9"/>
+            </svg>
+          </button>
         </h1>
         {#if selectedWorktree}
           <div class="stats-row">
@@ -382,6 +438,51 @@
     background: var(--color-primary-light);
     color: var(--color-primary);
     border-radius: var(--radius-sm);
+  }
+
+  .refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+    margin-left: auto;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    background: var(--color-bg);
+    color: var(--color-primary);
+  }
+
+  .refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .refresh-btn.has-changes {
+    color: var(--color-warning);
+    position: relative;
+  }
+
+  .refresh-btn.has-changes::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    background: var(--color-warning);
+    border-radius: 50%;
+  }
+
+  .refresh-btn .spinning {
+    animation: spin 0.8s linear infinite;
   }
 
   .stats-row {
