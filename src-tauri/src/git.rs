@@ -116,48 +116,7 @@ fn build_worktree_info(path: &PathBuf, is_main: bool) -> Result<Worktree, String
 
 fn get_worktree_status(worktree_path: &str) -> Result<WorktreeStatus, String> {
     let output = run_git(worktree_path, &["status", "--porcelain"])?;
-
-    let mut modified = 0u32;
-    let mut staged = 0u32;
-    let mut untracked = 0u32;
-    let mut conflicted = 0u32;
-
-    for line in output.lines() {
-        if line.len() < 2 {
-            continue;
-        }
-
-        let index_status = line.chars().next().unwrap_or(' ');
-        let worktree_status = line.chars().nth(1).unwrap_or(' ');
-
-        // Check for conflicts (UU, AA, DD, AU, UA, DU, UD)
-        if matches!(
-            (index_status, worktree_status),
-            ('U', 'U') | ('A', 'A') | ('D', 'D') | ('A', 'U') | ('U', 'A') | ('D', 'U') | ('U', 'D')
-        ) {
-            conflicted += 1;
-        } else if index_status == '?' && worktree_status == '?' {
-            // Untracked
-            untracked += 1;
-        } else {
-            // Check staged changes (index column)
-            if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C') {
-                staged += 1;
-            }
-            // Check unstaged changes (worktree column) - only if not already counted as staged
-            else if matches!(worktree_status, 'M' | 'D') {
-                modified += 1;
-            }
-        }
-    }
-
-    Ok(WorktreeStatus {
-        is_clean: modified == 0 && staged == 0 && untracked == 0 && conflicted == 0,
-        modified,
-        staged,
-        untracked,
-        conflicted,
-    })
+    Ok(parse_status_porcelain(&output))
 }
 
 // Get commit history for a worktree
@@ -180,39 +139,7 @@ pub fn get_commit_history(
         ],
     )?;
 
-    let mut commits = Vec::new();
-
-    for record in output.split('\x1e') {
-        let record = record.trim();
-        if record.is_empty() {
-            continue;
-        }
-
-        let fields: Vec<&str> = record.split('\x1f').collect();
-        if fields.len() < 6 {
-            continue;
-        }
-
-        let hash = fields[0].to_string();
-        let short_hash = fields[1].to_string();
-        let author_name = fields[2].to_string();
-        let author_email = fields[3].to_string();
-        let timestamp = fields[4].parse::<i64>().unwrap_or(0);
-        let summary = fields[5].to_string();
-        let message = fields.get(6).unwrap_or(&"").trim().to_string();
-
-        commits.push(CommitInfo {
-            hash,
-            short_hash,
-            author_name,
-            author_email,
-            timestamp,
-            message,
-            summary,
-        });
-    }
-
-    Ok(commits)
+    Ok(parse_commit_log(&output))
 }
 
 // Get diff for a specific commit
@@ -623,4 +550,466 @@ pub fn list_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
     });
 
     Ok(branches)
+}
+
+/// Parse git status --porcelain output into WorktreeStatus
+/// Extracted for testability
+fn parse_status_porcelain(output: &str) -> WorktreeStatus {
+    let mut modified = 0u32;
+    let mut staged = 0u32;
+    let mut untracked = 0u32;
+    let mut conflicted = 0u32;
+
+    for line in output.lines() {
+        if line.len() < 2 {
+            continue;
+        }
+
+        let index_status = line.chars().next().unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+
+        // Check for conflicts (UU, AA, DD, AU, UA, DU, UD)
+        if matches!(
+            (index_status, worktree_status),
+            ('U', 'U') | ('A', 'A') | ('D', 'D') | ('A', 'U') | ('U', 'A') | ('D', 'U') | ('U', 'D')
+        ) {
+            conflicted += 1;
+        } else if index_status == '?' && worktree_status == '?' {
+            // Untracked
+            untracked += 1;
+        } else {
+            // Check staged changes (index column)
+            if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C') {
+                staged += 1;
+            }
+            // Check unstaged changes (worktree column) - only if not already counted as staged
+            else if matches!(worktree_status, 'M' | 'D') {
+                modified += 1;
+            }
+        }
+    }
+
+    WorktreeStatus {
+        is_clean: modified == 0 && staged == 0 && untracked == 0 && conflicted == 0,
+        modified,
+        staged,
+        untracked,
+        conflicted,
+    }
+}
+
+/// Parse git log output with record/unit separators into Vec<CommitInfo>
+/// Extracted for testability
+fn parse_commit_log(output: &str) -> Vec<CommitInfo> {
+    let mut commits = Vec::new();
+
+    for record in output.split('\x1e') {
+        let record = record.trim();
+        if record.is_empty() {
+            continue;
+        }
+
+        let fields: Vec<&str> = record.split('\x1f').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+
+        let hash = fields[0].to_string();
+        let short_hash = fields[1].to_string();
+        let author_name = fields[2].to_string();
+        let author_email = fields[3].to_string();
+        let timestamp = fields[4].parse::<i64>().unwrap_or(0);
+        let summary = fields[5].to_string();
+        let message = fields.get(6).unwrap_or(&"").trim().to_string();
+
+        commits.push(CommitInfo {
+            hash,
+            short_hash,
+            author_name,
+            author_email,
+            timestamp,
+            message,
+            summary,
+        });
+    }
+
+    commits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== parse_range tests ====================
+
+    #[test]
+    fn test_parse_range_with_comma() {
+        assert_eq!(parse_range("1,5"), Some((1, 5)));
+        assert_eq!(parse_range("10,20"), Some((10, 20)));
+        assert_eq!(parse_range("0,0"), Some((0, 0)));
+    }
+
+    #[test]
+    fn test_parse_range_single_number() {
+        // Single number implies 1 line
+        assert_eq!(parse_range("1"), Some((1, 1)));
+        assert_eq!(parse_range("10"), Some((10, 1)));
+        assert_eq!(parse_range("0"), Some((0, 1)));
+    }
+
+    #[test]
+    fn test_parse_range_invalid() {
+        assert_eq!(parse_range(""), None);
+        assert_eq!(parse_range("abc"), None);
+        assert_eq!(parse_range("1,abc"), None);
+        assert_eq!(parse_range("abc,1"), None);
+    }
+
+    // ==================== parse_hunk_header tests ====================
+
+    #[test]
+    fn test_parse_hunk_header_basic() {
+        assert_eq!(
+            parse_hunk_header("@@ -1,5 +1,7 @@"),
+            Some((1, 5, 1, 7))
+        );
+        assert_eq!(
+            parse_hunk_header("@@ -10,3 +12,5 @@"),
+            Some((10, 3, 12, 5))
+        );
+    }
+
+    #[test]
+    fn test_parse_hunk_header_single_line() {
+        // Single line changes (no comma means 1 line)
+        assert_eq!(
+            parse_hunk_header("@@ -1 +1 @@"),
+            Some((1, 1, 1, 1))
+        );
+    }
+
+    #[test]
+    fn test_parse_hunk_header_with_context() {
+        // Hunk headers can have function context after @@
+        assert_eq!(
+            parse_hunk_header("@@ -10,3 +12,5 @@ fn some_function()"),
+            Some((10, 3, 12, 5))
+        );
+    }
+
+    #[test]
+    fn test_parse_hunk_header_new_file() {
+        // New file: old side is 0,0
+        assert_eq!(
+            parse_hunk_header("@@ -0,0 +1,10 @@"),
+            Some((0, 0, 1, 10))
+        );
+    }
+
+    #[test]
+    fn test_parse_hunk_header_deleted_file() {
+        // Deleted file: new side is 0,0
+        assert_eq!(
+            parse_hunk_header("@@ -1,10 +0,0 @@"),
+            Some((1, 10, 0, 0))
+        );
+    }
+
+    #[test]
+    fn test_parse_hunk_header_invalid() {
+        assert_eq!(parse_hunk_header("not a hunk header"), None);
+        assert_eq!(parse_hunk_header("@@ @@"), None);
+        assert_eq!(parse_hunk_header("@@ -1 @@"), None);
+    }
+
+    // ==================== parse_git_diff_output tests ====================
+
+    #[test]
+    fn test_parse_diff_empty() {
+        let files = parse_git_diff_output("");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_parse_diff_single_modified_file() {
+        let diff = r#"diff --git a/src/main.rs b/src/main.rs
+index abc1234..def5678 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
+ fn main() {
++    println!("Hello");
+     println!("World");
+ }
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/main.rs");
+        assert!(matches!(files[0].status, FileStatus::Modified));
+        assert!(!files[0].binary);
+        assert_eq!(files[0].hunks.len(), 1);
+
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.old_start, 1);
+        assert_eq!(hunk.old_lines, 3);
+        assert_eq!(hunk.new_start, 1);
+        assert_eq!(hunk.new_lines, 4);
+        assert_eq!(hunk.lines.len(), 4);
+
+        // Check line types
+        assert_eq!(hunk.lines[0].kind, ' '); // context
+        assert_eq!(hunk.lines[1].kind, '+'); // addition
+        assert_eq!(hunk.lines[2].kind, ' '); // context
+        assert_eq!(hunk.lines[3].kind, ' '); // context
+    }
+
+    #[test]
+    fn test_parse_diff_new_file() {
+        let diff = r#"diff --git a/new_file.txt b/new_file.txt
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/new_file.txt
+@@ -0,0 +1,2 @@
++line 1
++line 2
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new_file.txt");
+        assert!(matches!(files[0].status, FileStatus::Added));
+    }
+
+    #[test]
+    fn test_parse_diff_deleted_file() {
+        let diff = r#"diff --git a/old_file.txt b/old_file.txt
+deleted file mode 100644
+index abc1234..0000000
+--- a/old_file.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line 1
+-line 2
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "old_file.txt");
+        assert!(matches!(files[0].status, FileStatus::Deleted));
+    }
+
+    #[test]
+    fn test_parse_diff_renamed_file() {
+        let diff = r#"diff --git a/old_name.rs b/new_name.rs
+similarity index 95%
+rename from old_name.rs
+rename to new_name.rs
+index abc1234..def5678 100644
+--- a/old_name.rs
++++ b/new_name.rs
+@@ -1,3 +1,3 @@
+ fn main() {
+-    old();
++    new();
+ }
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new_name.rs");
+        assert!(matches!(files[0].status, FileStatus::Renamed));
+        assert_eq!(files[0].old_path, Some("old_name.rs".to_string()));
+    }
+
+    #[test]
+    fn test_parse_diff_binary_file() {
+        let diff = r#"diff --git a/image.png b/image.png
+new file mode 100644
+index 0000000..abc1234
+Binary files /dev/null and b/image.png differ
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "image.png");
+        assert!(files[0].binary);
+        assert!(files[0].hunks.is_empty());
+    }
+
+    #[test]
+    fn test_parse_diff_multiple_files() {
+        let diff = r#"diff --git a/file1.rs b/file1.rs
+index abc..def 100644
+--- a/file1.rs
++++ b/file1.rs
+@@ -1 +1 @@
+-old
++new
+diff --git a/file2.rs b/file2.rs
+index 123..456 100644
+--- a/file2.rs
++++ b/file2.rs
+@@ -1 +1 @@
+-foo
++bar
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].path, "file1.rs");
+        assert_eq!(files[1].path, "file2.rs");
+    }
+
+    #[test]
+    fn test_parse_diff_multiple_hunks() {
+        let diff = r#"diff --git a/file.rs b/file.rs
+index abc..def 100644
+--- a/file.rs
++++ b/file.rs
+@@ -1,3 +1,3 @@
+ fn foo() {
+-    old1();
++    new1();
+ }
+@@ -10,3 +10,3 @@
+ fn bar() {
+-    old2();
++    new2();
+ }
+"#;
+        let files = parse_git_diff_output(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].hunks.len(), 2);
+        assert_eq!(files[0].hunks[0].old_start, 1);
+        assert_eq!(files[0].hunks[1].old_start, 10);
+    }
+
+    // ==================== parse_status_porcelain tests ====================
+
+    #[test]
+    fn test_status_clean() {
+        let status = parse_status_porcelain("");
+        assert!(status.is_clean);
+        assert_eq!(status.modified, 0);
+        assert_eq!(status.staged, 0);
+        assert_eq!(status.untracked, 0);
+        assert_eq!(status.conflicted, 0);
+    }
+
+    #[test]
+    fn test_status_modified_unstaged() {
+        let status = parse_status_porcelain(" M src/main.rs\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.modified, 1);
+        assert_eq!(status.staged, 0);
+    }
+
+    #[test]
+    fn test_status_staged() {
+        let status = parse_status_porcelain("M  src/main.rs\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.staged, 1);
+        assert_eq!(status.modified, 0);
+    }
+
+    #[test]
+    fn test_status_added_staged() {
+        let status = parse_status_porcelain("A  new_file.rs\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.staged, 1);
+    }
+
+    #[test]
+    fn test_status_deleted_staged() {
+        let status = parse_status_porcelain("D  old_file.rs\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.staged, 1);
+    }
+
+    #[test]
+    fn test_status_untracked() {
+        let status = parse_status_porcelain("?? untracked.txt\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.untracked, 1);
+    }
+
+    #[test]
+    fn test_status_conflicts() {
+        // UU - both modified (merge conflict)
+        let status = parse_status_porcelain("UU conflicted.rs\n");
+        assert!(!status.is_clean);
+        assert_eq!(status.conflicted, 1);
+
+        // AA - both added
+        let status = parse_status_porcelain("AA both_added.rs\n");
+        assert_eq!(status.conflicted, 1);
+
+        // DD - both deleted
+        let status = parse_status_porcelain("DD both_deleted.rs\n");
+        assert_eq!(status.conflicted, 1);
+    }
+
+    #[test]
+    fn test_status_mixed() {
+        let output = "M  staged.rs\n M modified.rs\n?? untracked.txt\nUU conflict.rs\n";
+        let status = parse_status_porcelain(output);
+        assert!(!status.is_clean);
+        assert_eq!(status.staged, 1);
+        assert_eq!(status.modified, 1);
+        assert_eq!(status.untracked, 1);
+        assert_eq!(status.conflicted, 1);
+    }
+
+    // ==================== parse_commit_log tests ====================
+
+    #[test]
+    fn test_commit_log_single() {
+        // Format: hash, short_hash, author_name, author_email, timestamp, summary, body
+        let output = "abc123def456\x1fabc123\x1fJohn Doe\x1fjohn@example.com\x1f1700000000\x1fFix bug\x1fDetailed description\x1e";
+        let commits = parse_commit_log(output);
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].hash, "abc123def456");
+        assert_eq!(commits[0].short_hash, "abc123");
+        assert_eq!(commits[0].author_name, "John Doe");
+        assert_eq!(commits[0].author_email, "john@example.com");
+        assert_eq!(commits[0].timestamp, 1700000000);
+        assert_eq!(commits[0].summary, "Fix bug");
+        assert_eq!(commits[0].message, "Detailed description");
+    }
+
+    #[test]
+    fn test_commit_log_multiple() {
+        let output = "hash1\x1fh1\x1fAlice\x1falice@test.com\x1f1700000000\x1fFirst\x1fBody1\x1e\
+                      hash2\x1fh2\x1fBob\x1fbob@test.com\x1f1700001000\x1fSecond\x1fBody2\x1e";
+        let commits = parse_commit_log(output);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].summary, "First");
+        assert_eq!(commits[1].summary, "Second");
+    }
+
+    #[test]
+    fn test_commit_log_empty_body() {
+        let output = "hash\x1fh\x1fName\x1femail\x1f1700000000\x1fSummary\x1f\x1e";
+        let commits = parse_commit_log(output);
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].message, "");
+    }
+
+    #[test]
+    fn test_commit_log_multiline_body() {
+        let output = "hash\x1fh\x1fName\x1femail\x1f1700000000\x1fSummary\x1fLine1\nLine2\nLine3\x1e";
+        let commits = parse_commit_log(output);
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].message, "Line1\nLine2\nLine3");
+    }
+
+    #[test]
+    fn test_commit_log_empty() {
+        let commits = parse_commit_log("");
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_commit_log_invalid_record() {
+        // Too few fields - should be skipped
+        let output = "hash\x1fh\x1fName\x1e";
+        let commits = parse_commit_log(output);
+        assert!(commits.is_empty());
+    }
 }
