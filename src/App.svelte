@@ -394,9 +394,6 @@
     {:else if worktrees.length > 0}
       <div class="split-view">
         <section class="commits-panel">
-          <div class="panel-header">
-            <h2>Commits</h2>
-          </div>
           <CommitList
             {commits}
             {selectedCommit}
@@ -410,9 +407,6 @@
           />
         </section>
         <section class="diff-panel">
-          <div class="panel-header">
-            <h2>Changes</h2>
-          </div>
           <CommitDiffView
             diff={commitDiff}
             {workingDiff}
@@ -538,18 +532,5 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-
-  .panel-header {
-    padding: var(--space-lg);
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .panel-header h2 {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--color-text);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
 </style>

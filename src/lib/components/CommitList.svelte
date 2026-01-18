@@ -130,7 +130,6 @@
   .commits {
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-sm);
   }
 
   .empty {
@@ -148,24 +147,22 @@
     display: flex;
     align-items: flex-start;
     gap: var(--space-md);
-    padding: var(--space-md);
-    margin-bottom: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
     border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+    background: transparent;
     text-align: left;
     cursor: pointer;
     color: var(--color-text);
-    transition: background-color 0.15s, box-shadow 0.15s;
+    transition: background-color 0.15s;
   }
 
   .commit-item:hover {
-    background: var(--color-border);
+    background: var(--color-bg);
   }
 
   .commit-item.selected {
     background: var(--color-primary-light);
-    box-shadow: inset 0 0 0 1px var(--color-primary);
   }
 
   .commit-item.selected .commit-indicator {
@@ -247,7 +244,7 @@
   }
 
   .commit-item.selected .sha {
-    background: rgba(124, 92, 252, 0.15);
+    background: rgba(234, 88, 12, 0.15);
   }
 
   .separator {
@@ -302,9 +299,6 @@
 
   .working-changes {
     border-left: 3px solid var(--color-warning);
-  }
-
-  .working-changes.selected {
-    border-left-color: var(--color-warning);
+    padding-left: calc(var(--space-md) - 3px);
   }
 </style>

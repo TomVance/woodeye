@@ -281,14 +281,13 @@
   }
 
   .diff-content {
-    padding: var(--space-lg);
+    padding: 0;
   }
 
   .commit-header {
     background: var(--color-bg);
-    border-radius: var(--radius-md);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--color-border);
   }
 
   .working-header {
@@ -408,9 +407,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
-    margin: var(--space-lg) 0 var(--space-md) 0;
-    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-lg);
     font-size: 0.85rem;
     font-weight: 600;
   }
@@ -436,20 +433,22 @@
   .file-diffs {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
   }
 
   .file-diff {
-    border-radius: var(--radius-md);
     overflow: hidden;
-    border: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .file-diff:last-child {
+    border-bottom: none;
   }
 
   .file-header {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
     background: var(--color-bg);
     width: 100%;
     cursor: pointer;
